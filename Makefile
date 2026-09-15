@@ -68,3 +68,20 @@ health:  ## Проверка здоровья сервисов
 update-odoo:  ## Обновить Odoo образ и перезапустить
 	$(COMPOSE) pull odoo db nginx redis
 	$(COMPOSE) up -d
+
+# --- SpaceWeb Cloud VPS (sweb.ru) ---
+up-sweb:  ## Запустить на SpaceWeb VPS (облегчённый, 1-2 ГБ RAM)
+	docker compose -f docker-compose.yml -f deploy/sweb/docker-compose.sweb.yml up -d --build
+
+down-sweb:  ## Остановить SpaceWeb стек
+	docker compose -f docker-compose.yml -f deploy/sweb/docker-compose.sweb.yml down
+
+logs-sweb:  ## Логи SpaceWeb стека
+	docker compose -f docker-compose.yml -f deploy/sweb/docker-compose.sweb.yml logs -f --tail=200
+
+ps-sweb:
+	docker compose -f docker-compose.yml -f deploy/sweb/docker-compose.sweb.yml ps
+
+install-sweb:  ## Авто-установка на SpaceWeb VPS (требует DOMAIN и EMAIL)
+	@if [ -z "$(DOMAIN)" ] || [ -z "$(EMAIL)" ]; then echo "Usage: make install-sweb DOMAIN=crm.example.com EMAIL=admin@example.com"; exit 1; fi
+	bash deploy/sweb/install.sh $(DOMAIN) $(EMAIL)

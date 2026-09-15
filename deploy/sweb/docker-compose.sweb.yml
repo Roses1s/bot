@@ -1,0 +1,76 @@
+# =============================================================================
+# docker-compose.sweb.yml — оптимизация для SpaceWeb Cloud VPS
+# Для тарифов Cloud Promo / Lite / Plus (1-2 vCPU, 1-4 ГБ RAM, 10-40 ГБ NVMe)
+# Отличия от prod: меньше workers/memory, без лимитов, упрощён бэкап
+# Использование:
+#   cp .env.example .env && nano .env
+#   docker compose -f docker-compose.yml -f deploy/sweb/docker-compose.sweb.yml up -d
+# =============================================================================
+
+services:
+  db:
+    # На самом дешёвом тарифе (1 ГБ RAM) урезаем shared_buffers
+    command: >
+      postgres
+      -c max_connections=80
+      -c shared_buffers=128MB
+      -c effective_cache_size=512MB
+      -c maintenance_work_mem=32MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=8MB
+      -c work_mem=2MB
+      -c min_wal_size=256MB
+      -c max_wal_size=1GB
+    deploy:
+      resources:
+        limits:
+          memory: 700M
+        reservations:
+          memory: 256M
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          memory: 150M
+
+  odoo:
+    # На SpaceWeb VPS с 1-2 ГБ RAM нельзя 4 воркера — ставим 2
+    # Если у вас Cloud Plus (4 ГБ) — поменяйте на 3
+    environment:
+      # Перекрываем odoo.conf через env — не нужно править конфиг
+      ODOO_WORKERS: 2
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: "1.5"
+        reservations:
+          memory: 512M
+    # Для отладки на VPS можно открыть порт напрямую (закрыть после проверки)
+    # ports:
+    #   - "127.0.0.1:8069:8069"
+
+  nginx:
+    deploy:
+      resources:
+        limits:
+          memory: 150M
+
+  # Бэкап — оставляем, но можно отключить на тарифе 1 ГБ если не хватает RAM:
+  # docker compose --profile sweb up -d  (см. ниже)
+  backup:
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+
+  backup-api:
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+
+  # Certbot — на shared-хостинге SpaceWeb SSL уже есть, но на VPS нужен
+  certbot:
+    restart: unless-stopped

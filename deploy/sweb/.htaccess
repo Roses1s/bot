@@ -1,0 +1,35 @@
+# =============================================================================
+# .htaccess для ВИРТУАЛЬНОГО ХОСТИНГА SpaceWeb (shared) — прокси на VPS с Odoo
+# Кладётся в корень сайта на shared-хостинге (например, public_html/.htaccess)
+# Зачем: у вас уже оплачен shared (99-659₽/мес), а Odoo там запустить нельзя.
+#       Этот файл проксирует crm.yourdomain.ru → ваш VPS с Odoo
+# Требования: в панели SpaceWeb включить "Проксирование" / mod_proxy (уточните в ТП)
+# Альтернатива: просто сделать редирект (см. внизу)
+# =============================================================================
+
+# Включить прокси (если не сработает — обратитесь в ТП SpaceWeb, попросите включить mod_proxy/mod_proxy_http)
+<IfModule mod_proxy.c>
+    ProxyPreserveHost On
+    ProxyRequests Off
+    RequestHeader set X-Forwarded-Proto "https"
+    RequestHeader set X-Real-IP "%{REMOTE_ADDR}s"
+
+    # Замените 185.XXX.XXX.XXX на IP вашего Cloud VPS
+    # И crm.yourdomain.ru на ваш домен CRM
+    ProxyPass / http://185.XXX.XXX.XXX:80/
+    ProxyPassReverse / http://185.XXX.XXX.XXX:80/
+</IfModule>
+
+# --- Если mod_proxy НЕ дают на shared — используйте редирект (просто перекинет на VPS) ---
+# Раскомментируйте 2 строки ниже и закомментируйте блок выше:
+# RewriteEngine On
+# RewriteRule ^(.*)$ https://crm.yourdomain.ru/$1 [R=301,L]
+# (в этом случае на shared оставьте лендинг, а CRM будет на поддомене crm.* который указывает напрямую на VPS)
+
+# --- Кэширование статики (для лендинга на shared) ---
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType image/svg+xml "access plus 1 year"
+</IfModule>

@@ -8,30 +8,31 @@
 
 ## 🚀 Быстрый старт (Шаг 1)
 
+### Обычный VPS / выделенный сервер
 ```bash
-# 1. Клонируйте
-git clone https://github.com/Roses1s/bot.git /opt/odoo-crm
-cd /opt/odoo-crm
-
-# 2. Настройте секреты
-cp .env.example .env
-nano .env  # заполните POSTGRES_PASSWORD, ODOO_ADMIN_PASSWD, DOMAIN, EMAIL
-# Генерация пароля: openssl rand -base64 32
-
-# 3. Запустите
-docker compose up -d --build
-docker compose logs -f odoo   # подождите 60-90 сек до healthy
-
-# 4. Выпустите SSL (домен должен указывать на IP)
+git clone https://github.com/Roses1s/bot.git /opt/odoo-crm && cd /opt/odoo-crm
+cp .env.example .env && nano .env  # POSTGRES_PASSWORD, ODOO_ADMIN_PASSWD, DOMAIN, EMAIL
+docker compose up -d --build && docker compose logs -f odoo   # 60-90 сек до healthy
 make ssl-init DOMAIN=crm.example.com EMAIL=admin@example.com
-curl -I https://crm.example.com/health  # 200 OK
-
-# 5. Проверьте бэкапы
-make backup
-curl https://crm.example.com/backup-api/docs  # Swagger
+curl -I https://crm.example.com/health  # 200
+make backup && curl https://crm.example.com/backup-api/docs  # Swagger
 ```
-
 Подробнее: [`docs/step1_infrastructure.md`](docs/step1_infrastructure.md)
+
+### SpaceWeb (sweb.ru) — shared vs VPS
+> **На виртуальном (shared) хостинге SpaceWeb Odoo запустить нельзя** (только PHP, без Docker/root/long-running). Нужен **SpaceWeb Cloud VPS** от 291₽/мес (Promo/Lite/Plus).
+>
+> **Адаптация для SpaceWeb уже готова:** `deploy/sweb/` — облегчённый `docker-compose.sweb.yml` (workers=2, 1 ГБ RAM), авто-установщик `install.sh`, `.htaccess` прокси, инструкция.
+
+```bash
+# На SpaceWeb Cloud VPS (Ubuntu 22.04) — 1 команда:
+ssh root@185.XXX.XXX.XXX
+curl -fsSL https://raw.githubusercontent.com/Roses1s/bot/arena/01a0a63e-bot/deploy/sweb/install.sh | bash -s crm.yourdomain.ru admin@yourdomain.ru
+# Или через make:
+make up-sweb   # docker compose -f docker-compose.yml -f deploy/sweb/docker-compose.sweb.yml up -d
+make ssl-init DOMAIN=crm.yourdomain.ru EMAIL=admin@yourdomain.ru
+```
+Гайд: [`deploy/sweb/README_SWEB.md`](deploy/sweb/README_SWEB.md) — как заказать VPS, прокинуть домен, настроить `.htaccess` на shared, выпустить SSL.
 
 ---
 
