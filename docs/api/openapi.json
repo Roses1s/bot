@@ -1,0 +1,373 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Odoo Backup Service API",
+    "description": "Управление бэкапами PostgreSQL для Odoo 17 — создание, список, восстановление, healthcheck. Используется Nginx reverse-proxy и Docker. Swagger доступен на /docs.",
+    "contact": {
+      "name": "DevOps",
+      "email": "admin@example.com"
+    },
+    "license": {
+      "name": "MIT"
+    },
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Healthcheck",
+        "description": "Проверяет что есть свежий бэкап.\n\nArgs:\n    service: Сервис бэкапов (DI).\n\nReturns:\n    HealthResponse с флагом healthy.",
+        "operationId": "healthcheck_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backups": {
+      "get": {
+        "tags": [
+          "backups"
+        ],
+        "summary": "Список бэкапов",
+        "description": "Возвращает список всех локальных бэкапов.\n\nArgs:\n    service: Сервис.\n\nReturns:\n    Список бэкапов, новые первые.",
+        "operationId": "list_backups_backups_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BackupListItem"
+                  },
+                  "type": "array",
+                  "title": "Response List Backups Backups Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "backups"
+        ],
+        "summary": "Создать бэкап",
+        "description": "Запускает pg_dump и сохраняет бэкап.\n\nArgs:\n    service: Сервис.\n\nReturns:\n    Метаданные созданного бэкапа.\n\nRaises:\n    HTTPException: 500 при ошибке pg_dump.",
+        "operationId": "create_backup_backups_post",
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/restore": {
+      "post": {
+        "tags": [
+          "backups"
+        ],
+        "summary": "Восстановить из бэкапа",
+        "description": "Восстанавливает БД из указанного файла.\n\nArgs:\n    body: Тело запроса с именем файла.\n    service: Сервис.\n\nReturns:\n    Сообщение об успехе.\n\nRaises:\n    HTTPException: 404 если файла нет, 500 при ошибке восстановления.",
+        "operationId": "restore_backup_restore_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequestBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Restore Backup Restore Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BackupListItem": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes"
+          },
+          "size_human": {
+            "type": "string",
+            "title": "Size Human"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "storage_type": {
+            "type": "string",
+            "title": "Storage Type"
+          },
+          "checksum_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checksum Sha256"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "size_bytes",
+          "size_human",
+          "created_at",
+          "storage_type"
+        ],
+        "title": "BackupListItem",
+        "description": "Элемент списка бэкапов."
+      },
+      "BackupResponse": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "description": "Имя файла бэкапа"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "title": "Size Bytes",
+            "description": "Размер в байтах"
+          },
+          "size_human": {
+            "type": "string",
+            "title": "Size Human",
+            "description": "Человеко-читаемый размер"
+          },
+          "checksum_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checksum Sha256",
+            "description": "SHA256 хеш"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds",
+            "description": "Длительность pg_dump"
+          },
+          "s3_uploaded": {
+            "type": "boolean",
+            "title": "S3 Uploaded",
+            "description": "Загружен ли в S3"
+          },
+          "s3_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "S3 Key",
+            "description": "Ключ в S3"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "Предупреждения"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename",
+          "size_bytes",
+          "size_human",
+          "s3_uploaded"
+        ],
+        "title": "BackupResponse",
+        "description": "Ответ после создания бэкапа."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "ok или fail"
+          },
+          "healthy": {
+            "type": "boolean",
+            "title": "Healthy"
+          },
+          "latest_backup": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Backup"
+          },
+          "backups_count": {
+            "type": "integer",
+            "title": "Backups Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "healthy",
+          "backups_count"
+        ],
+        "title": "HealthResponse",
+        "description": "Ответ healthcheck."
+      },
+      "RestoreRequestBody": {
+        "properties": {
+          "filename": {
+            "type": "string",
+            "title": "Filename",
+            "description": "Имя файла в backup_dir, напр. odoo_20240101_030000.sql.gz"
+          },
+          "target_db": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Db",
+            "description": "Целевая БД (по умолчанию из .env)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filename"
+        ],
+        "title": "RestoreRequestBody",
+        "description": "Тело запроса восстановления."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

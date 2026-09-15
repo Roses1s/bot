@@ -1,0 +1,48 @@
+# Env & secrets
+.env
+*.pem
+*.key
+*.crt
+
+# Odoo
+addons/__pycache__/
+*.pyc
+__pycache__/
+*.pyo
+.filestore/
+sessions/
+
+# Backups
+backups/
+*.dump
+*.sql.gz
+*.zip
+
+# Certbot
+certbot/
+
+# Python
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log

@@ -1,0 +1,49 @@
+# fail2ban jail.local — защита Odoo + SSH + Nginx
+[DEFAULT]
+bantime  = 3600
+findtime = 600
+maxretry = 5
+backend  = auto
+banaction = iptables-multiport
+# Уведомления (опционально)
+# destemail = admin@example.com
+# sender = fail2ban@example.com
+# action = %(action_mwl)s
+
+[sshd]
+enabled = true
+port    = ssh
+filter  = sshd
+logpath = /var/log/auth.log
+maxretry = 3
+
+[nginx-http-auth]
+enabled = true
+filter  = nginx-http-auth
+port    = http,https
+logpath = /var/log/nginx/error.log
+
+[nginx-limit-req]
+enabled = true
+filter  = nginx-limit-req
+port    = http,https
+logpath = /var/log/nginx/error.log
+maxretry = 10
+findtime = 60
+
+[nginx-botsearch]
+enabled = true
+filter  = nginx-botsearch
+port    = http,https
+logpath = /var/log/nginx/access.log
+maxretry = 2
+
+# Odoo — брутфорс /web/login (кастомный фильтр ниже)
+[odoo-login]
+enabled  = true
+filter   = odoo
+port     = http,https
+logpath  = /var/log/nginx/odoo_access.log
+maxretry = 5
+findtime = 300
+bantime  = 7200

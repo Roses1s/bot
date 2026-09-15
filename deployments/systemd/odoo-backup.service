@@ -1,0 +1,13 @@
+[Unit]
+Description=Odoo PostgreSQL Backup (one-shot)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/odoo-crm
+ExecStart=/usr/bin/docker compose exec -T backup python -m app.cli backup
+# Альтернатива без Docker: ExecStart=/opt/odoo-crm/scripts/backup/.venv/bin/python -m app.cli backup
+
+[Install]
+WantedBy=multi-user.target

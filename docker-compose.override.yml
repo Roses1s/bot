@@ -1,0 +1,28 @@
+# docker-compose.override.yml — локальная разработка
+# Автоматически подхватывается `docker compose up`
+# Для продакшена: docker compose -f docker-compose.yml up -d (без override)
+
+services:
+  odoo:
+    ports:
+      - "8069:8069"
+      - "8072:8072"
+    environment:
+      # В dev — удобнее без прокси
+      ODOO_DEMO: "False"
+    volumes:
+      - ./addons:/mnt/extra-addons  # без :ro для hot-reload
+      - ./config/odoo/odoo.conf:/etc/odoo/odoo.conf
+    command: odoo --dev reload
+
+  db:
+    ports:
+      - "5432:5432"  # открыть наружу для DBeaver/pgAdmin
+
+  nginx:
+    # В dev можно отключить, если не нужен SSL
+    profiles: ["prod"]
+  certbot:
+    profiles: ["prod"]
+  backup:
+    profiles: ["prod"]

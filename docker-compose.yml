@@ -1,0 +1,301 @@
+# =============================================================================
+# Odoo 17 Community Edition — Production Docker Compose
+# Stack: Odoo 17 + PostgreSQL 15 + Nginx + Redis + Backup Cron
+# =============================================================================
+# Использование:
+#   cp .env.example .env && nano .env
+#   make init-ssl DOMAIN=example.com EMAIL=admin@example.com  # первый запуск
+#   docker compose up -d --build
+#   docker compose logs -f odoo
+# =============================================================================
+
+name: odoo-crm
+
+networks:
+  frontend:
+    name: odoo_frontend
+    driver: bridge
+  backend:
+    name: odoo_backend
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres_data:
+    name: odoo_postgres_data
+    driver: local
+  odoo_data:
+    name: odoo_data
+    driver: local
+  odoo_addons:
+    name: odoo_addons
+    driver: local
+  redis_data:
+    name: odoo_redis_data
+    driver: local
+  certbot_certs:
+    name: certbot_certs
+  certbot_www:
+    name: certbot_www
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 15 — основная БД
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:15-alpine
+    container_name: odoo_db
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-odoo}
+      POSTGRES_USER: ${POSTGRES_USER:-odoo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./config/postgres/init:/docker-entrypoint-initdb.d:ro
+      - ./backups:/backups  # для pg_dump из backup-контейнера
+    networks:
+      - backend
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"  # только локально, наружу через SSH-туннель
+    command: >
+      postgres
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odoo} -d ${POSTGRES_DB:-odoo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 — кэш сессий, очереди, rate-limit
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: odoo_redis
+    restart: unless-stopped
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis_data:/data
+      - ./config/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # Odoo 17 Community Edition
+  # ---------------------------------------------------------------------------
+  odoo:
+    image: odoo:17.0
+    container_name: odoo_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      HOST: db
+      USER: ${POSTGRES_USER:-odoo}
+      PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: ${POSTGRES_DB:-odoo}
+    volumes:
+      - odoo_data:/var/lib/odoo
+      - ./config/odoo/odoo.conf:/etc/odoo/odoo.conf:ro
+      - ./addons:/mnt/extra-addons:ro
+      - ./backups:/backups
+    networks:
+      - backend
+      - frontend
+    # Odoo слушает 8069 (HTTP) + 8072 (longpolling/gevent)
+    expose:
+      - "8069"
+      - "8072"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8069/web/health', timeout=5)\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # ---------------------------------------------------------------------------
+  # Nginx — Reverse Proxy + SSL терминация + статика + gzip
+  # ---------------------------------------------------------------------------
+  nginx:
+    image: nginx:stable-alpine
+    container_name: odoo_nginx
+    restart: unless-stopped
+    depends_on:
+      odoo:
+        condition: service_healthy
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+      - odoo_data:/var/lib/odoo:ro
+    networks:
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ---------------------------------------------------------------------------
+  # Certbot — авто-продление Let's Encrypt
+  # ---------------------------------------------------------------------------
+  certbot:
+    image: certbot/certbot:latest
+    container_name: odoo_certbot
+    volumes:
+      - certbot_certs:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    # Запускается по cron внутри контейнера + при старте проверяет сертификаты
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done;'"
+    networks:
+      - frontend
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Backup — cron + pg_dump + ротация + S3 (опционально)
+  # ---------------------------------------------------------------------------
+  backup:
+    build:
+      context: ./scripts/backup
+      dockerfile: Dockerfile
+    container_name: odoo_backup
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-odoo}
+      POSTGRES_USER: ${POSTGRES_USER:-odoo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      BACKUP_CRON: ${BACKUP_CRON:-0 3 * * *}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_DIR: /backups
+      # S3 (опционально)
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-eu-central-1}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup:/app:ro
+    networks:
+      - backend
+      - frontend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # Backup API — FastAPI + OpenAPI/Swagger для управления бэкапами
+  # ---------------------------------------------------------------------------
+  backup-api:
+    build:
+      context: ./scripts/backup
+      dockerfile: Dockerfile
+    container_name: odoo_backup_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn app.api:app --host 0.0.0.0 --port 8000 --log-level info
+    env_file: .env
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: ${POSTGRES_DB:-odoo}
+      POSTGRES_USER: ${POSTGRES_USER:-odoo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      BACKUP_DIR: /backups
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-eu-central-1}
+    volumes:
+      - ./backups:/backups
+    networks:
+      - backend
+      - frontend
+    expose:
+      - "8000"
+    # Доступен через Nginx: https://crm.example.com/backup-api/
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
