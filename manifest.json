@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "ATI Finance Info",
+  "version": "1.0",
+  "description": "Показывает выручку и чистую прибыль с checko.ru на страницах ati.su",
+  "host_permissions": [
+    "https://ati.su/*",
+    "https://checko.ru/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://ati.su/firms/*/info*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
